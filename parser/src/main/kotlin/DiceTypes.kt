@@ -90,6 +90,22 @@ class ExplodingDice(
     }
 }
 
+class ExplodingAddDice(
+    numberOfFaces: Int,
+    numberOfDice: Int,
+    val comparison: Comparison = Comparison.EQUAL_TO,
+    val target: Int = numberOfFaces
+) : BaseDiceExpression(numberOfFaces, numberOfDice) {
+    override fun description(): String {
+        val extra = if (numberOfFaces == target && comparison == Comparison.EQUAL_TO) {
+            ""
+        } else {
+            "${comparison.description}${target}"
+        }
+        return "${numberOfDice}d${numberOfFaces}^${extra}"
+    }
+}
+
 class CompoundingDice(
     numberOfFaces: Int, numberOfDice: Int,
     val comparison: Comparison = Comparison.EQUAL_TO,
@@ -102,25 +118,6 @@ class CompoundingDice(
             "${comparison.description}${target}"
         }
         return "${numberOfDice}d${numberOfFaces}!!${extra}"
-    }
-}
-
-class TargetPoolDice(
-    numberOfFaces: Int,
-    numberOfDice: Int,
-    val comparison: Comparison,
-    val target: Int,
-    val modifier: Int = 0
-) : BaseDiceExpression(numberOfFaces, numberOfDice) {
-    override fun description(): String {
-        return if (modifier == 0) {
-            "${numberOfDice}d${numberOfFaces}${comparison.description}${target}"
-        } else {
-            val extra = if (modifier > 0) {
-                "+"
-            } else ""
-            "(${numberOfDice}d${numberOfFaces}${extra}${modifier})${comparison.description}${target}"
-        }
     }
 }
 
@@ -152,6 +149,12 @@ class SortedDiceExpression(val value: DiceExpression, val sortAscending: Boolean
     override fun description(): String {
         val order = if (sortAscending) "asc" else "desc"
         return value.description() + " " + order
+    }
+}
+
+class TargetPoolExpression(val left: DiceExpression, val comparison: Comparison, val target: Int) : DiceExpression {
+    override fun description(): String {
+        return left.description() + comparison + target
     }
 }
 

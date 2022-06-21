@@ -92,6 +92,16 @@ class DiceRollingVisitor(private val randomGenerator: (Int) -> Int) : DiceVisito
         return ResultTree(minDiceExpression, value, listOf(left, right))
     }
 
+    override fun visit(targetPoolExpression: TargetPoolExpression): ResultTree {
+        val left = visit(targetPoolExpression.left)
+        val comparison = targetPoolExpression.comparison
+        val target = targetPoolExpression.target
+        val matchingSubResults = left.results
+            .filter { predicate(comparison, target)(it.value) }
+            .toList()
+        return ResultTree(targetPoolExpression, matchingSubResults.size, matchingSubResults)
+    }
+
     override fun visit(maxDiceExpression: MaxDiceExpression): ResultTree {
         val left = visit(maxDiceExpression.left)
         val right = visit(maxDiceExpression.right)
@@ -171,6 +181,20 @@ class DiceRollingVisitor(private val randomGenerator: (Int) -> Int) : DiceVisito
         )
     }
 
+    override fun visit(explodingAddDice: ExplodingAddDice): ResultTree {
+        val values = explodeRollAdd(
+            explodingAddDice.numberOfDice,
+            explodingAddDice.numberOfFaces,
+            predicate(explodingAddDice.comparison, explodingAddDice.target)
+        )
+            .map { ResultTree(NDice(explodingAddDice.numberOfFaces), it) }
+        return ResultTree(
+            explodingAddDice,
+            values.map { it.value }.stream().reduce { x, y -> Math.addExact(x, y) }.get(),
+            values
+        )
+    }
+
     override fun visit(compoundingDice: CompoundingDice): ResultTree {
 
         val values = compoundRoll(
@@ -185,14 +209,6 @@ class DiceRollingVisitor(private val randomGenerator: (Int) -> Int) : DiceVisito
             values.map { it.value }.stream().reduce { x, y -> Math.addExact(x, y) }.get(),
             values
         )
-    }
-
-    override fun visit(targetPoolDice: TargetPoolDice): ResultTree {
-        val values = IntRange(1, targetPoolDice.numberOfDice)
-            .map { random(targetPoolDice.numberOfFaces) }
-            .map { ResultTree(NDice(targetPoolDice.numberOfFaces), it) }
-        val value = values.map { it.value }.count(predicate(targetPoolDice.comparison, targetPoolDice.target))
-        return ResultTree(targetPoolDice, value, values)
     }
 
     private fun explodeRoll(numberOfDice: Int, numberOfFaces: Int, predicate: (Int) -> Boolean): List<Int> {
@@ -214,6 +230,27 @@ class DiceRollingVisitor(private val randomGenerator: (Int) -> Int) : DiceVisito
             recursiveRoll(numberOfFaces, predicate, maxRolls - 1) + result
         } else listOf(result)
     }
+
+    private fun explodeRollAdd(numberOfDice: Int, numberOfFaces: Int, predicate: (Int) -> Boolean): List<Int> {
+
+        return IntRange(1, numberOfDice)
+            .map { recursiveAddRoll(numberOfFaces, predicate, 50) }
+    }
+
+    private fun recursiveAddRoll(numberOfFaces: Int, predicate: (Int) -> Boolean, maxRolls: Int): Int {
+
+        check(maxRolls >= 0) {
+            "Dice exploded too many times in a role, one of the following likely " +
+                    "happened, your random number generator isn't actually random, you tried to explode a 'd1', " +
+                    "or you just happened to be really lucky"
+        }
+
+        val result = random(numberOfFaces)
+        return if (predicate.invoke(result)) {
+            recursiveAddRoll(numberOfFaces, predicate, maxRolls - 1) + result
+        } else result
+    }
+
 
     private fun compoundRoll(
         numberOfDice: Int,
@@ -242,10 +279,10 @@ class DiceRollingVisitor(private val randomGenerator: (Int) -> Int) : DiceVisito
 
     private fun predicate(comparison: Comparison, target: Int): (Int) -> Boolean {
         return when (comparison) {
-            Comparison.GREATER_THAN -> {
+            Comparison.GREATER_EQUAL_THAN -> {
                 { it >= target }
             }
-            Comparison.LESS_THAN -> {
+            Comparison.LESS_EQUAL_THAN -> {
                 { it <= target }
             }
             Comparison.EQUAL_TO -> {
@@ -270,7 +307,7 @@ class DiceRollingVisitor(private val randomGenerator: (Int) -> Int) : DiceVisito
     override fun visit(customDice: CustomDice): ResultTree {
         val values = IntRange(1, customDice.numberOfDice)
             .map { random(customDice.dieFaces.size) }
-            .map { i -> customDice.dieFaces.get(i - 1) }
+            .map { i -> customDice.dieFaces[i - 1] }
             .map { ResultTree(CustomDice(1, customDice.dieFaces), it) }
 
         return ResultTree(

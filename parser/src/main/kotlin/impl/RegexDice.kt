@@ -36,6 +36,7 @@ class RegexDice {
         private val EQUAL = "="
         private val BANG = "!"
         private val SLASH = "/"
+        private val CARET = "\\^"
 
         private val DICE_FACE = "$D(?<FACES>$INT)" // d6
         private val N_DICE_FACE = "(?<numberOfDice>$INT)$DICE_FACE" // 2d6
@@ -49,14 +50,13 @@ class RegexDice {
         private val COMPOUND_DICE_TARGET =
             "$COMPOUND_DICE(?<comp>[$LESS_THEN_EQUAL$GREATER_THEN_EQUAL$EQUAL]?)(?<target>$INT)" // 3d6!!>5 or 3d6!!5
         private val EXPLODE_DICE = "$N_DICE_FACE$BANG" // 3d6!
+        private val EXPLODE_ADD_DICE = "$N_DICE_FACE$CARET" // 3d6^
         private val EXPLODE_DICE_TARGET =
             "$EXPLODE_DICE(?<comp>[$LESS_THEN_EQUAL$GREATER_THEN_EQUAL$EQUAL]?)(?<target>$INT)" // 3d6!>5 or 3d6!5
         private val KEEP_DICE = Regex("$N_DICE_FACE$K(?<keep>$INT)") // 4d6k2
         private val KEEP_LOW_DICE = Regex("$N_DICE_FACE$L(?<keep>$INT)") // 4d6k2
         private val TARGET_POOL =
-            "$N_DICE_FACE(?<operator>[$LESS_THEN_EQUAL$GREATER_THEN_EQUAL$EQUAL])(?<target>$INT)" // 4d10>6
-        private val TARGET_POOL_PARENS =
-            "$LPAREN$N_DICE_FACE(?<operation>[+-]?)(?<modifier>$INT)$RPAREN(?<operator>[$LESS_THEN_EQUAL$GREATER_THEN_EQUAL$EQUAL])(?<target>$INT)" // (4d10+2)>6
+            "(?<left>.+)(?<operator>[$LESS_THEN_EQUAL$GREATER_THEN_EQUAL$EQUAL])(?<target>$INT)"
         private val NESTED = "(?<LEFT>.*)$LPAREN(?<NESTED>.*)$RPAREN(?<RIGHT>.*)".toRegex() // 10(2) or (2) or 10(2)4
         private val MUL = "(?<left>.+)\\*(?<right>.+)".toRegex() // exp * exp
         private val DIV = "(?<left>.+)/(?<right>.+)".toRegex() // exp / exp
@@ -70,7 +70,7 @@ class RegexDice {
         private val N_CUSTOM_DIE = "(?<numberOfDice>$INT)$CUSTOM_DIE" // 3d[1/2/3/4]
     }
 
-    val parsers = linkedMapOf(
+    private val parsers = linkedMapOf(
         SORT to this::visitSort,
         N_DICE_FACE.toRegex() to this::visitNDiceFace,
         N_CUSTOM_DIE.toRegex() to this::visitNCustomDice,
@@ -88,8 +88,8 @@ class RegexDice {
         COMPOUND_DICE_TARGET.toRegex() to this::visitCompoundDiceTarget,
         EXPLODE_DICE.toRegex() to this::visitExplode,
         EXPLODE_DICE_TARGET.toRegex() to this::visitExplodeTarget,
-        TARGET_POOL.toRegex() to this::visitTargetPool,
-        TARGET_POOL_PARENS.toRegex() to this::visitTargetPoolMod,
+        EXPLODE_ADD_DICE.toRegex() to this::visitExplodeAdd,
+        TARGET_POOL.toRegex() to this::visitTargetFilter,
         MIN to this::visitMin,
         MAX to this::visitMax,
         NESTED to this::visitNested,
@@ -261,44 +261,21 @@ class RegexDice {
         return KeepLowDice(numberOfFaces, numberOfDice, numberToKeep)
     }
 
-    fun comparisonFrom(text: String): Comparison {
+    private fun comparisonFrom(text: String): Comparison {
         return when (text) {
-            Comparison.GREATER_THAN.description -> Comparison.GREATER_THAN
-            Comparison.LESS_THAN.description -> Comparison.LESS_THAN
+            Comparison.GREATER_EQUAL_THAN.description -> Comparison.GREATER_EQUAL_THAN
+            Comparison.LESS_EQUAL_THAN.description -> Comparison.LESS_EQUAL_THAN
             Comparison.EQUAL_TO.description -> Comparison.EQUAL_TO
             else -> throw IllegalArgumentException("Could not parse Comparison operator from '${text}'")
         }
     }
 
-    private fun visitTargetPool(match: MatchResult): DiceExpression {
-        val numberOfDice = match.groupValues[1].toInt()
-        val diceFace = match.groupValues[2].toInt()
-        val comp = match.groupValues[3] // <, >, =
-        val targetNumber = match.groupValues[4].toInt()
+    private fun visitTargetFilter(match: MatchResult): DiceExpression {
+        val expression = match.groupValues[1]
+        val comp = match.groupValues[2] // <, >, =
+        val targetNumber = match.groupValues[3].toInt()
 
-        return rollTargetPool(numberOfDice, diceFace, comp, targetNumber)
-    }
-
-    private fun visitTargetPoolMod(match: MatchResult): DiceExpression {
-        val numberOfDice = match.groupValues[1].toInt()
-        val diceFace = match.groupValues[2].toInt()
-        val operation = match.groupValues[3] // +, -
-        val modifier = match.groupValues[4].toInt()
-        val comp = match.groupValues[5] // <, >, =
-        var targetNumber = match.groupValues[6].toInt()
-
-        // an odd block but, basically 2d8+2<6 == 2d8<4
-        if (operation == "+") {
-            targetNumber -= modifier
-        } else if (operation == "-") {
-            targetNumber += modifier
-        }
-
-        return rollTargetPool(numberOfDice, diceFace, comp, targetNumber)
-    }
-
-    private fun rollTargetPool(numberOfDice: Int, numberOfFaces: Int, comp: String, targetNumber: Int): DiceExpression {
-        return TargetPoolDice(numberOfFaces, numberOfDice, comparisonFrom(comp), targetNumber)
+        return TargetPoolExpression(parse(expression), comparisonFrom(comp), targetNumber)
     }
 
     private fun visitCompoundDice(match: MatchResult): DiceExpression { // 3d6!!
@@ -323,6 +300,13 @@ class RegexDice {
         val numberOfFaces = match.groupValues[2].toInt()
 
         return ExplodingDice(numberOfFaces, numberOfDice)
+    }
+
+    private fun visitExplodeAdd(match: MatchResult): DiceExpression { // 3d6^
+        val numberOfDice = match.groupValues[1].toInt()
+        val numberOfFaces = match.groupValues[2].toInt()
+
+        return ExplodingAddDice(numberOfFaces, numberOfDice)
     }
 
     private fun visitExplodeTarget(match: MatchResult): DiceExpression { // 3d6!>5 or 3d6!5
