@@ -99,7 +99,7 @@ class DiceRollingVisitor(private val randomGenerator: (Int) -> Int) : DiceVisito
         val matchingSubResults = left.results
             .filter { predicate(comparison, target)(it.value) }
             .toList()
-        return ResultTree(targetPoolExpression, matchingSubResults.size, matchingSubResults)
+        return ResultTree(targetPoolExpression, matchingSubResults.size, left.results)
     }
 
     override fun visit(maxDiceExpression: MaxDiceExpression): ResultTree {

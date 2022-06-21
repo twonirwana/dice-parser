@@ -146,6 +146,8 @@ class RegexDiceTest {
         expect(1) { parse("(4d8-2)>6") } //each part of the subexpression is evaluated against the target (32 and 2)
         expect(3) { parse("(4d6!)>5", rolls(2, 6, 6, 5, 3, 1)) }
         expect(3) { parse("(4d6!>5)>5", rolls(2, 6, 6, 5, 3, 1, 2)) }
+        expect(2) { parse("3d6>4", rolls(2, 4, 5)) }
+        expect(listOf(2, 4, 5)) { getResults("3d6>4", rolls(2, 4, 5)) }
     }
 
     @Test
